@@ -1,6 +1,14 @@
 # Usage
 
-**Usage**: ./user_pr \<command> [args]
+### kernel module
+
+To build the module download Makefile and secrets_module.c and put these files in the same folder. Then use ***make*** to build it. After this step you can load the module in kernel using ***insmod secrets_module.ko*** and unload it using ***rmmod secrets_module***.
+
+### user_app
+
+To compile type ***gcc -o user_app user_app.c***
+
+**Usage**: ./user_app \<command> [args]
 
 |Commands|Description|
 |-|--------|
