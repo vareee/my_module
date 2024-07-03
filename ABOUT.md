@@ -13,3 +13,36 @@
 Когда и модуль ядра, и userspace-программа были готовы, появилась воможность полноценно проверить работу модуля ядра. После тестирования было принято решение изменить логику работы операции чтения. По моему мнению, идеологически более верным является реализация возможности чтения секрета по его идентификатору внутри модуля ядра, а не получение всего списка секретов с его последующей фильтрацией по id.
 
 Последним шагом стало внесение изменений в код функции чтения внутри модуля ядра и пользовательской программы и тестирование работы итоговой версии проекта.
+
+### Бонусное задание
+
+Чтобы собрать ядро с ранее написанным модулем ядра, произвел следующие шаги:
+
+- внутри директории с исходниками ядра создал подкаталог drivers/secrets_module;
+- в этот дочерний каталог скопировал файл с кодом модуля secrets_module.c и Makefile для него;
+<p align="center">
+  <img src="images/drivers_folder.jpg" alt="KASAN Image">
+</p> 
+
+- в файл drivers/Makefile добавил строку *obj-$(CONFIG_MYMODULE) += secrets_module/*
+<p align="center">
+  <img src="images/module_makefile.jpg" alt="KASAN Image">
+</p> 
+
+- в файл drivers/Kconfig добавил следующие строки:
+<p align="center">
+  <img src="images/drivers_kconfig.jpg" alt="KASAN Image">
+</p>  
+
+- после этого в menuconfig можно пройти по пути *My Custom Drivers* и включить поддержку собственного модуля:
+<p align="center">
+  <img src="images/custom_drivers.jpg" alt="KASAN Image">
+</p>
+
+- для поддержки KASAN изменим .config, добавив строку  CONFIG_KASAN=y:
+<p align="center">
+  <img src="images/kasan.jpg" alt="KASAN Image">
+</p>
+
+- скомпилировал ядро с помощью *make* и *make modules_install*.
+  
