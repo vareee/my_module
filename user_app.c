@@ -1,8 +1,8 @@
-#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 
 #define PROC_FILE "/proc/secrets"
@@ -10,78 +10,68 @@
 
 
 void create_secret(int id, const char *data) {
-    int file_descriptor = open(PROC_FILE, O_WRONLY);
+    int fd = open(PROC_FILE, O_WRONLY);
 
-    if (file_descriptor == -1) {
+    if (fd == -1) {
         perror("open");
         exit(EXIT_FAILURE);
     }
 
     char buffer[BUFFER_SIZE];
 
-    int buffer_len = snprintf(buffer, BUFFER_SIZE, "C %d %s", id, data);
+    int bytes_written = snprintf(buffer, BUFFER_SIZE, "C %d %s", id, data);
 
-    if (write(file_descriptor, buffer, buffer_len + 1) == -1) {
+    if (write(fd, buffer, bytes_written + 1) == -1) {
         perror("write");
-        close(file_descriptor);
+        close(fd);
         exit(EXIT_FAILURE);
     }
 
-    close(file_descriptor);
+    close(fd);
 }
 
 void read_secret(int id) {
-    int file_descriptor = open(PROC_FILE, O_RDONLY);
-    if (file_descriptor == -1) {
+    int fd = open(PROC_FILE, O_RDONLY);
+
+    if (fd == -1) {
         perror("open");
         exit(EXIT_FAILURE);
     }
 
     char buffer[BUFFER_SIZE];
+
     ssize_t bytes_read;
-    int found = 0;
 
-    while ((bytes_read = read(file_descriptor, buffer, BUFFER_SIZE)) > 0) {
-        char *token = strtok(buffer, "\n");
-        while (token != NULL) {
-            int secret_id;
-            if (sscanf(token, "ID: %d", &secret_id) == 1 && secret_id == id) {
-                printf("Secret:\n%s\n", token);
-                found = 1;
-                break;
-            }
-            token = strtok(NULL, "\n");
-        }
+    
+    snprintf(buffer, BUFFER_SIZE, "%d", id);
 
-        if (found)
-            break;
+    while ((bytes_read = read(fd, buffer, sizeof(buffer) - 1)) > 0) {
+        buffer[bytes_read] = '\0';
+        printf("%s\n", buffer);
     }
 
-    if (!found) {
-        printf("Secret with ID %d not found\n", id);
-    }
-
-    close(file_descriptor);
+    close(fd);
 }
 
 void delete_secret(int id) {
-    int file_descriptor = open(PROC_FILE, O_WRONLY);
-    if (file_descriptor == -1) {
+    int fd = open(PROC_FILE, O_WRONLY);
+
+    if (fd == -1) {
         perror("open");
         exit(EXIT_FAILURE);
     }
 
     char buffer[BUFFER_SIZE];
 
-    int buffer_len = snprintf(buffer, BUFFER_SIZE, "D %d", id);
+    int bytes_written = snprintf(buffer, BUFFER_SIZE, "D %d", id);
 
-    if (write(file_descriptor, buffer, buffer_len + 1) == -1) {
+    if (write(fd, buffer, bytes_written + 1) == -1) {
         perror("write");
-        close(file_descriptor);
+        close(fd);
         exit(EXIT_FAILURE);
     }
 
-    close(file_descriptor);
+    close(fd);
 }
 
 int main(int argc, char *argv[]) {
@@ -115,7 +105,7 @@ int main(int argc, char *argv[]) {
             fprintf(stderr, "Usage: %s delete <id>\n", argv[0]);
             exit(EXIT_FAILURE);
         }
-
+        
         int id = atoi(argv[2]);
         delete_secret(id);
     } else {
