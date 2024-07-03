@@ -44,5 +44,9 @@
   <img src="images/kasan.jpg" alt="KASAN Image">
 </p>
 
-- скомпилировал ядро с помощью *make* и *make modules_install*.
-  
+- скомпилировал ядро с помощью *make*, *make modules_install*, *make install* и *update-grub*;
+
+- результат компиляции:
+<p align="center">
+  <img src="images/new_kernel.jpg" alt="KASAN Image">
+</p>
