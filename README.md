@@ -1,6 +1,6 @@
 # Usage
 
-Usage: ./user_pr <command> [args]
+**Usage**: ./user_pr \<command> [args]
 
 |Commands|Description|
 |-|--------|
