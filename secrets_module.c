@@ -4,12 +4,13 @@
 #include <linux/proc_fs.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
+#include <linux/mutex.h>
 
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("vareee");
 MODULE_DESCRIPTION("A kernel module to store user secrets.");
-MODULE_VERSION("2.0");
+MODULE_VERSION("3.0");
 
 
 #define PROC_NAME "secrets"
@@ -23,6 +24,7 @@ struct secret {
 
 static struct secret secrets[MAX_SECRETS];
 static struct proc_dir_entry *proc_entry;
+static DEFINE_MUTEX(secrets_mutex); 
 
 static ssize_t proc_read(struct file *file_pointer, char __user *buffer, size_t buffer_len, loff_t *offset) {
     char *output;
@@ -43,28 +45,36 @@ static ssize_t proc_read(struct file *file_pointer, char __user *buffer, size_t 
 
     sscanf(input, "%d", &id);
 
+    mutex_lock(&secrets_mutex);
+
     if (id < 0 || id >= MAX_SECRETS || !secrets[id].used) {
+        mutex_unlock(&secrets_mutex);
         kfree(input);
         return -EINVAL;
     } 
 
     output = kmalloc((sizeof(struct secret)), GFP_KERNEL);
-    if (!output) 
+    if (!output) {
+        mutex_unlock(&secrets_mutex);
         return -ENOMEM;
+    }
     
     output_len += scnprintf(output, buffer_len, "ID: %d, Secret: %s", id, secrets[id].data);
 
     if (output_len == 0) {
         kfree(output);
+        mutex_unlock(&secrets_mutex);
         return 0;
     }
     
     if (copy_to_user(buffer, output, output_len)) {
         kfree(output);
+        mutex_unlock(&secrets_mutex);
         return -EFAULT;
     }
     
     kfree(output);
+    mutex_unlock(&secrets_mutex);
     return output_len;
 }
 
@@ -88,10 +98,13 @@ static ssize_t proc_write(struct file *file, const char __user *buffer, size_t l
 
     sscanf(input, "%c %d", &command, &id);
 
+    mutex_lock(&secrets_mutex);
+
     switch (command) {
         case 'C':
             if (id < 0 || id >= MAX_SECRETS || secrets[id].used) {
-                kfree(input);
+                mutex_unlock(&secrets_mutex);
+		        kfree(input);
                 return -EINVAL;
             }
             data = strchr(input + 2, ' ') + 1;
@@ -102,6 +115,7 @@ static ssize_t proc_write(struct file *file, const char __user *buffer, size_t l
 
         case 'D':
             if (id < 0 || id >= MAX_SECRETS || !secrets[id].used) {
+                mutex_unlock(&secrets_mutex); 
                 kfree(input);
                 return -EINVAL;
             }
@@ -110,10 +124,12 @@ static ssize_t proc_write(struct file *file, const char __user *buffer, size_t l
             break;
 
         default:
+            mutex_unlock(&secrets_mutex);
             kfree(input);
             return -EINVAL;
     }
 
+    mutex_unlock(&secrets_mutex);
     kfree(input);
     return len;
 }
@@ -145,3 +161,4 @@ static void __exit secrets_exit(void) {
 
 module_init(secrets_init);
 module_exit(secrets_exit);
+
