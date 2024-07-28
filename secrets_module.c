@@ -10,72 +10,78 @@
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("vareee");
 MODULE_DESCRIPTION("A kernel module to store user secrets.");
-MODULE_VERSION("3.0");
+MODULE_VERSION("4.0");
 
 
 #define PROC_NAME "secrets"
-#define MAX_SECRETS 100
 #define MAX_SECRET_SIZE 1024
 
 struct secret {
-    bool used;
+    int id;
     char data[MAX_SECRET_SIZE];
+    struct list_head list;
 };
 
-static struct secret secrets[MAX_SECRETS];
+static LIST_HEAD(secret_list);
 static struct proc_dir_entry *proc_entry;
-static DEFINE_MUTEX(secrets_mutex); 
+static DEFINE_MUTEX(secret_mutex);
 
 static ssize_t proc_read(struct file *file_pointer, char __user *buffer, size_t buffer_len, loff_t *offset) {
-    char *output;
-    char *input;
+    char *input, *output;
     int id;
+    struct secret *sec;
+    struct list_head *pos;
     int output_len = 0;
 
+    if (*offset > 0)
+        return 0;
+
     input = kmalloc(buffer_len + 1, GFP_KERNEL);
-    if (!input) 
+    if (!input)
         return -ENOMEM;
 
     if (copy_from_user(input, buffer, buffer_len)) {
         kfree(input);
         return -EFAULT;
     }
-
     input[buffer_len] = '\0';
 
     sscanf(input, "%d", &id);
 
-    mutex_lock(&secrets_mutex);
-
-    if (id < 0 || id >= MAX_SECRETS || !secrets[id].used) {
-        mutex_unlock(&secrets_mutex);
-        kfree(input);
-        return -EINVAL;
-    } 
-
-    output = kmalloc((sizeof(struct secret)), GFP_KERNEL);
+    output = kmalloc(MAX_SECRET_SIZE + 50, GFP_KERNEL);
     if (!output) {
-        mutex_unlock(&secrets_mutex);
+        kfree(input);
         return -ENOMEM;
     }
-    
-    output_len += scnprintf(output, buffer_len, "ID: %d, Secret: %s", id, secrets[id].data);
+
+    mutex_lock(&secret_mutex);
+
+    list_for_each(pos, &secret_list) {
+        sec = list_entry(pos, struct secret, list);
+        if (sec->id == id) {
+            output_len = scnprintf(output, MAX_SECRET_SIZE + 50, "ID: %d, Secret: %s", sec->id, sec->data);
+            break;
+        }
+    }
+
+    mutex_unlock(&secret_mutex);
 
     if (output_len == 0) {
         kfree(output);
-        mutex_unlock(&secrets_mutex);
-        return 0;
+        kfree(input);
+        return -EINVAL; 
     }
-    
-    if (copy_to_user(buffer, output, output_len)) {
+
+    if (copy_to_user(buffer, output, min(buffer_len, (size_t)output_len))) {
         kfree(output);
-        mutex_unlock(&secrets_mutex);
+        kfree(input);
         return -EFAULT;
     }
-    
+
     kfree(output);
-    mutex_unlock(&secrets_mutex);
-    return output_len;
+    kfree(input);
+    *offset += min(buffer_len, (size_t)output_len);
+    return min(buffer_len, (size_t)output_len);
 }
 
 static ssize_t proc_write(struct file *file, const char __user *buffer, size_t len, loff_t *offset) {
@@ -83,12 +89,15 @@ static ssize_t proc_write(struct file *file, const char __user *buffer, size_t l
     int id;
     char command;
     char *data;
+    struct secret *sec, *new_sec;
+    struct list_head *pos, *q;
 
     if (len > MAX_SECRET_SIZE + 2)
         return -EINVAL;
 
     input = kmalloc(len + 1, GFP_KERNEL);
-    if (!input) return -ENOMEM;
+    if (!input)
+        return -ENOMEM;
 
     if (copy_from_user(input, buffer, len)) {
         kfree(input);
@@ -97,39 +106,57 @@ static ssize_t proc_write(struct file *file, const char __user *buffer, size_t l
     input[len] = '\0';
 
     sscanf(input, "%c %d", &command, &id);
+    data = strchr(input + 2, ' ') + 1;
 
-    mutex_lock(&secrets_mutex);
+    mutex_lock(&secret_mutex);
 
     switch (command) {
         case 'C':
-            if (id < 0 || id >= MAX_SECRETS || secrets[id].used) {
-                mutex_unlock(&secrets_mutex);
-		        kfree(input);
-                return -EINVAL;
+            list_for_each_safe(pos, q, &secret_list) {
+                sec = list_entry(pos, struct secret, list);
+                if (sec->id == id) {
+                    mutex_unlock(&secret_mutex);
+                    kfree(input);
+                    return -EINVAL;
+                }
             }
-            data = strchr(input + 2, ' ') + 1;
-            strncpy(secrets[id].data, data, MAX_SECRET_SIZE);
-            secrets[id].data[MAX_SECRET_SIZE - 1] = '\0';
-            secrets[id].used = true;
+
+            new_sec = kmalloc(sizeof(struct secret), GFP_KERNEL);
+            if (!new_sec) {
+                mutex_unlock(&secret_mutex);
+                kfree(input);
+                return -ENOMEM;
+            }
+
+            new_sec->id = id;
+            strncpy(new_sec->data, data, MAX_SECRET_SIZE);
+            new_sec->data[MAX_SECRET_SIZE - 1] = '\0';
+
+            list_add_tail(&new_sec->list, &secret_list);
             break;
 
         case 'D':
-            if (id < 0 || id >= MAX_SECRETS || !secrets[id].used) {
-                mutex_unlock(&secrets_mutex); 
-                kfree(input);
-                return -EINVAL;
+            list_for_each_safe(pos, q, &secret_list) {
+                sec = list_entry(pos, struct secret, list);
+                if (sec->id == id) {
+                    list_del(&sec->list);
+                    kfree(sec);
+                    mutex_unlock(&secret_mutex);
+                    kfree(input);
+                    return len;
+                }
             }
-            secrets[id].used = false;
-            memset(secrets[id].data, 0, MAX_SECRET_SIZE);
-            break;
+            mutex_unlock(&secret_mutex);
+            kfree(input);
+            return -EINVAL;
 
         default:
-            mutex_unlock(&secrets_mutex);
+            mutex_unlock(&secret_mutex);
             kfree(input);
             return -EINVAL;
     }
 
-    mutex_unlock(&secrets_mutex);
+    mutex_unlock(&secret_mutex);
     kfree(input);
     return len;
 }
@@ -140,14 +167,9 @@ static const struct proc_ops proc_ops = {
 };
 
 static int __init secrets_init(void) {
-
     proc_entry = proc_create(PROC_NAME, 0666, NULL, &proc_ops);
     if (!proc_entry) {
         return -ENOMEM;
-    }
-
-    for (int i = 0; i < MAX_SECRETS; i++) {
-        secrets[i].used = false;
     }
 
     pr_info("/proc/%s created\n", PROC_NAME);
@@ -155,6 +177,19 @@ static int __init secrets_init(void) {
 }
 
 static void __exit secrets_exit(void) {
+    struct secret *sec;
+    struct list_head *pos, *q;
+
+    mutex_lock(&secret_mutex);
+
+    list_for_each_safe(pos, q, &secret_list) {
+        sec = list_entry(pos, struct secret, list);
+        list_del(&sec->list);
+        kfree(sec);
+    }
+
+    mutex_unlock(&secret_mutex);
+
     proc_remove(proc_entry);
     pr_info("/proc/%s removed\n", PROC_NAME);
 }
